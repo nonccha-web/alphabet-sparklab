@@ -21,6 +21,6 @@ test('signed consent, GPC suppression, event ID shared by browser and CAPI',asyn
  const {ticket}=await(await handler(request({action:'visit',id,visitor,page:origin+'/project-start.html'}))).json();
  assert.equal((await handler(request({action:'consent',ticket:ticket+'x',granted:true}))).status,401);
  assert.equal((await handler(request({action:'consent',ticket:'',granted:true}))).status,401);
- await handler(request({action:'consent',ticket,granted:false}));await handler(request({action:'consent',ticket,granted:true},origin,{'sec-gpc':'1'}));assert.equal(sent.length,0);
+ await handler(request({action:'consent',ticket,granted:false}));await handler(request({action:'consent',ticket,granted:true},origin,{'sec-gpc':'1'}));assert.equal(sent.length,0);assert.ok(calls.some(([path,b])=>path==='tracking_visits?visitor_id=eq.'+visitor&&b.consent==='denied'));
  const r=await(await handler(request({action:'consent',ticket,granted:true}))).json();assert.equal(r.event_id,sent[0].event_id);assert.equal(r.event_name,'Project Start');assert.equal(r.pixel_id,'1038711025904592');assert.equal(r.accepted,true);
 });
