@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useState} from 'react';
+import {statsEndpoint,publicAnonKey} from '../lib/dashboard-api';
 import {AreaChart,Area,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,Legend} from 'recharts';
 import {Activity,Check,ChevronRight,Copy,Download,ExternalLink,Layers,Link2,RefreshCw,ShieldCheck,SlidersHorizontal,Users,MousePointer2} from 'lucide-react';
 type Link={slug:string;event_name:string;destination:string;visits:number;uniques:number;accepted:number;failed:number;consented:number};
@@ -9,7 +10,7 @@ const number=(n:number)=>new Intl.NumberFormat('en-US').format(n);
 const colors=['#c82128','#20368f','#707070'];
 export default function Dashboard(){
  const [tab,setTab]=useState('overview'),[start,setStart]=useState(()=>before(today(),29)),[end,setEnd]=useState(today),[filter,setFilter]=useState('all'),[data,setData]=useState<any>(null),[busy,setBusy]=useState(true),[error,setError]=useState(''),[copied,setCopied]=useState(''),[metric,setMetric]=useState('all'),[mode,setMode]=useState('live');
- async function refresh(){setBusy(true);setError('');try{const r=await fetch(`/api/tracking/stats?mode=${mode}&start=${start}T00:00:00%2B07:00&end=${before(end,-1)}T00:00:00%2B07:00`);const d=await r.json();if(!r.ok)throw Error(d.error||'โหลดข้อมูลไม่สำเร็จ');setData(d)}catch(e:any){setError(e.message)}finally{setBusy(false)}}
+ async function refresh(){setBusy(true);setError('');try{const r=await fetch(`${statsEndpoint}?mode=${mode}&start=${start}T00:00:00%2B07:00&end=${before(end,-1)}T00:00:00%2B07:00`,{headers:{apikey:publicAnonKey,Authorization:'Bearer '+publicAnonKey}});const d=await r.json();if(!r.ok)throw Error(d.error||'โหลดข้อมูลไม่สำเร็จ');setData(d)}catch(e:any){setError(e.message)}finally{setBusy(false)}}
  useEffect(()=>{refresh()},[start,end,mode]);
  const links:Link[]=data?.links||[],selected=links.filter(l=>filter==='all'||l.slug===filter),s=data?.settings;
  const total=(key:keyof Link)=>selected.reduce((a,l)=>a+Number(l[key]||0),0);

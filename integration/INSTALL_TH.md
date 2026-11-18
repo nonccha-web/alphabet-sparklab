@@ -116,8 +116,6 @@ on conflict (visitor_id) do nothing;
 
 ยังต้องให้ Dev ติดตั้งบน www.alphabetfacade.com และเชื่อม CMP/ทดสอบการทำงานบนเว็บไซต์จริง จึงยังไม่ควรถือว่าการเข้าหน้าเดิมถูกเก็บแล้วก่อนติดตั้ง
 
-## ชื่อ Dashboard
+## Dashboard
 
-ส่วน `siraphobice1995` เป็น namespace ของบัญชีเผยแพร่ Sites ไม่ใช่ชื่อฐานข้อมูล/เจ้าของ GitHub และการเปลี่ยน site slug แก้ได้เฉพาะส่วนแรก ไม่สามารถแทน namespace นี้ผ่านเครื่องมือ Sites ที่มีได้
-
-หากต้องการตัดชื่อส่วนตัวออกทั้งหมด ให้เจ้าของเลือก custom domain เช่น `alphabet-sparklab.alphabetfacade.com` จากนั้นผูก custom domain กับระบบและให้ Dev ตั้ง DNS ตาม records ที่ระบบออกให้ ยังไม่มีการเปลี่ยน DNS หรืออ้างว่า hostname ตัวอย่างนี้พร้อมใช้งาน
+https://nonccha-web.github.io/alphabet-sparklab/

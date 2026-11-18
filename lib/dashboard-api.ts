@@ -1,0 +1,2 @@
+export const statsEndpoint = 'https://hvrclmycmpgmnpwyzznw.supabase.co/functions/v1/dashboard-stats';
+export const publicAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh2cmNsbXljbXBnbW5wd3l6em53Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ5OTEyNjksImV4cCI6MjExMDU2NzI2OX0.k-nbPETmgSeAKVNhjXMsi2HIjaFGETn0WzdDVuU2u8I";
