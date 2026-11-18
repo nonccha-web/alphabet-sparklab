@@ -1,0 +1,30 @@
+-- Transaction-only tests. No HTTP, no Meta dispatch, no persistent test records.
+begin;
+do $$ declare visitor uuid:=gen_random_uuid(); visit uuid:=gen_random_uuid(); c jsonb; claim jsonb; event uuid; lease uuid; n integer; begin
+ insert into tracking_test_visitors(visitor_id) values(visitor);
+ perform tracking_record_visit(visit,visitor,'facade-care','https://test.invalid','SQL rollback test');
+ update tracking_visits set consent='granted' where id=visit;
+ select unique_id into event from tracking_visits where id=visit;
+ insert into tracking_meta_events(event_id,visit_id,event_name,status,next_attempt_at) values(event,visit,'Facade Care','failed',now()-interval '1 minute');
+ c:=tracking_claim_retries(10); select value into claim from jsonb_array_elements(c) where value->'event'->>'event_id'=event::text;
+ if claim is null then raise exception 'Due event not claimed'; end if;
+ lease:=(claim->'event'->>'lease_token')::uuid;
+ c:=tracking_claim_retries(10); select count(*) into n from jsonb_array_elements(c) where value->'event'->>'event_id'=event::text;
+ if n!=0 then raise exception 'Double claim'; end if;
+ if tracking_finish_attempt(event,gen_random_uuid(),true,false,null,null) then raise exception 'Stale lease accepted'; end if;
+ if not tracking_finish_attempt(event,lease,false,true,'503',null) then raise exception 'Failure not saved'; end if;
+ if not exists(select 1 from tracking_meta_events where event_id=event and status='failed' and retryable and next_attempt_at>now()) then raise exception 'No backoff'; end if;
+ update tracking_meta_events set next_attempt_at=now()-interval '1 minute' where event_id=event;
+ update tracking_visits set consent='denied' where id=visit;
+ c:=tracking_claim_retries(10); select count(*) into n from jsonb_array_elements(c) where value->'event'->>'event_id'=event::text;
+ if n!=0 then raise exception 'Denied consent claimed'; end if;
+ update tracking_visits set consent='granted' where id=visit;
+ update tracking_meta_events set status='sending',locked_at=now()-interval '3 minutes' where event_id=event;
+ c:=tracking_claim_retries(10); select value into claim from jsonb_array_elements(c) where value->'event'->>'event_id'=event::text;
+ if claim is null then raise exception 'Stale sending not recovered'; end if;
+ perform tracking_finish_attempt(event,(claim->'event'->>'lease_token')::uuid,true,false,null,'test');
+ c:=tracking_claim_retries(10); select count(*) into n from jsonb_array_elements(c) where value->'event'->>'event_id'=event::text;
+ if n!=0 then raise exception 'Accepted event requeued'; end if;
+end $$;
+select 'PASS: lease, backoff, consent, stale recovery, accepted exclusion' as test;
+rollback;

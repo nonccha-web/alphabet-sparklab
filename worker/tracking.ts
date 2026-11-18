@@ -18,7 +18,7 @@ export async function trackingRoute(req:Request,env:any):Promise<Response|null>{
  if(!url.pathname.startsWith('/t/')&&!url.pathname.startsWith('/api/tracking/'))return null;
  try{
  if(url.pathname==='/api/tracking/stats'&&req.method==='GET'){
- const result=await api(env,{action:'stats',start:url.searchParams.get('start'),end:url.searchParams.get('end')});return Response.json(result,{headers:{'Cache-Control':'no-store'}});
+ const result=await api(env,{action:'stats',mode:url.searchParams.get('mode')==='test'?'test':'live',start:url.searchParams.get('start'),end:url.searchParams.get('end')});return Response.json(result,{headers:{'Cache-Control':'no-store'}});
  }
  if(url.pathname.startsWith('/t/')&&req.method==='GET'){
  const slug=url.pathname.slice(3),link=links[slug];if(!link)return new Response('Not found',{status:404});
@@ -29,6 +29,13 @@ export async function trackingRoute(req:Request,env:any):Promise<Response|null>{
  const ticket=await seal([id,visitor,slug,Date.now()+3600000].join('|'),key);
  return html(link.name,`<p>คุณกำลังไปยังเว็บไซต์ Alphabet Facade</p><p>ระบบบันทึกจำนวนการเข้าชมและรหัสเบราว์เซอร์แบบ first-party เพื่อคัดซ้ำ โดยไม่ใช้ IP ระบุตัวบุคคล</p><p>อนุญาตให้ส่งเหตุการณ์การเข้าชมและรหัสเบราว์เซอร์ให้ Meta ผ่าน Pixel และ CAPI เพื่อวัดผลและปรับปรุงโฆษณาหรือไม่? คุณสามารถปฏิเสธและเข้าสู่เว็บไซต์ได้เช่นกัน โดยจะถามสิทธิ์ใหม่ทุกครั้งที่ใช้ลิงก์นี้</p><form method="POST" action="/api/tracking/consent"><input type="hidden" name="ticket" value="${escape(ticket)}"><button name="choice" value="allow">ยินยอมและไปยังเว็บไซต์</button><button class="secondary" name="choice" value="deny">ไม่ยินยอม · ไปยังเว็บไซต์</button></form>`,cookie(await seal(visitor,key)));
  }
+ if(url.pathname==='/api/tracking/browser-dispatched'&&req.method==='POST'){
+ if(req.headers.get('origin')!==url.origin)return new Response('Forbidden',{status:403});
+ const body=await req.json() as any;const ticket=await unseal(String(body.ticket||''),key);if(!ticket)return new Response('Invalid ticket',{status:400});
+ const [visit,visitor,,expiry]=ticket.split('|');
+ if(+expiry<Date.now()||await unseal(cookies(req).alphabet_vid||'',key)!==visitor)return new Response('Invalid identity',{status:400});
+ await api(env,{action:'browser-dispatched',visit,visitor});return Response.json({ok:true});
+ }
  if(url.pathname==='/api/tracking/consent'&&req.method==='POST'){
  if(req.headers.get('origin')!==url.origin)return new Response('Forbidden',{status:403});
  const f=await req.formData(),ticket=await unseal(String(f.get('ticket')||''),key);if(!ticket)return new Response('Invalid ticket',{status:400});
@@ -37,8 +44,11 @@ export async function trackingRoute(req:Request,env:any):Promise<Response|null>{
  const granted=f.get('choice')==='allow'&&req.headers.get('sec-gpc')!=='1';
  const r=await api(env,{action:'consent',visit,visitor,granted});
  if(!r.dispatch)return new Response(null,{status:303,headers:{Location:link.url,'Cache-Control':'no-store','Referrer-Policy':'same-origin'}});
- const config=JSON.stringify({event:r.event_name,id:r.event_id,pixel:r.pixel_id,dest:link.url,ticket}).replace(/</g,'\\u003c');
- return html('กำลังไปยัง '+link.name,`<p>บันทึกตัวเลือกเรียบร้อย กำลังนำคุณไปยังเว็บไซต์…</p><a href="${link.url}">ไปยังเว็บไซต์</a><script>const c=${config};!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('consent','grant');fbq('init',c.pixel);fbq('trackCustom',c.event,{}, {eventID:c.id});setTimeout(()=>location.replace(c.dest),1500);</script>`);
+ const config=JSON.stringify({event:r.event_name,id:r.event_id,pixel:r.pixel_id,dest:link.url,ticket,isTest:r.is_test===true}).replace(/</g,'\\u003c');
+ return html('กำลังไปยัง '+link.name,`<p>บันทึกตัวเลือกเรียบร้อย กำลังนำคุณไปยังเว็บไซต์…</p><a href="${link.url}">ไปยังเว็บไซต์</a><script>const c=${config};!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('consent','grant');fbq('init',c.pixel);fbq('trackCustom',c.event,{}, {eventID:c.id});
+// Signal only that the library loaded and the browser queue was dispatched, not Meta receipt.
+let acknowledged=false;const watch=setInterval(()=>{if(!acknowledged&&typeof fbq.callMethod==='function'){acknowledged=true;clearInterval(watch);fetch('/api/tracking/browser-dispatched',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticket:c.ticket}),keepalive:true}).catch(()=>{});}},100);
+setTimeout(()=>{clearInterval(watch);location.replace(c.dest)},2500);</script>`);
  }
  return new Response('Not found',{status:404});
  }catch{return new Response(JSON.stringify({error:'ไม่สามารถเชื่อมต่อระบบ Tracking ได้ กรุณาลองใหม่'}),{status:503,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}})}

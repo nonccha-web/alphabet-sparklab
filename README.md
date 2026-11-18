@@ -12,7 +12,7 @@ Dashboard: https://alphabet-sparklab-tracking.siraphobice1995.chatgpt.site
 
 ## Current activation state
 
-Visit recording and aggregate dashboard are live. Meta delivery is intentionally disabled pending secure CAPI token storage. Owner approved permanent per-visitor/per-link deduplication. Applied supabase/lifetime.sql; window_mode=lifetime, window_confirmed=true. Existing identities are preserved. Browser cookies remain subject to expiry/deletion; this cannot guarantee cross-device or truly eternal identity. No mock statistics. Historic visits are not backfilled into Meta when enabled later.
+Visit recording, aggregate dashboard and Meta delivery are live. CAPI token is stored in Supabase Edge Function Secrets. All three custom events received real CAPI acknowledgements during the initial setup tests. Owner approved permanent per-visitor/per-link deduplication. Applied supabase/lifetime.sql; window_mode=lifetime, window_confirmed=true. Existing identities are preserved. Browser cookies remain subject to expiry/deletion; this cannot guarantee cross-device or truly eternal identity. No mock statistics. Historic visits are not backfilled into Meta when enabled later.
 
 ## Architecture
 
@@ -21,7 +21,10 @@ Visit recording and aggregate dashboard are live. Meta delivery is intentionally
 - PostgreSQL transactions + advisory locks serialize the same visitor/link. Rolling-window records and an additional unique constraint prevent race conditions; a campaign window can use fixed start/end dates instead. Each GET has its own visit ID. RPC request retries with the same ID are idempotent.
 - A denied/unknown consent never loads Pixel or sends CAPI. Granted consent only sends after activation. A first granted visit claims one event per unique/window. Later repeat visits do not send new Meta events for that unique. A previously denied first visit can be followed by a later granted visit.
 - Meta Pixel `trackCustom` and CAPI use exactly the same case-sensitive event name and event UUID. No additional PageView is sent.
-- CAPI retries transient failures up to three times with the same original event ID/time. `accepted` requires an HTTP success and `events_received === 1`. A subsequent consented visit can retry a failed event (up to six claims, within 47 hours). Failed events are shown on the dashboard. There is no unattended retry scheduler. A process crash while sending requires an administrator to review the event and reset its status to failed before retry; preserve its event_id and event_time.
+- CAPI delivery uses a durable outbox. Supabase pg_cron invokes the authenticated Edge Function every minute; exponential backoff starts at one minute and caps at one hour. Each event has at most 10 attempts and a 47-hour deadline. Retry 429/5xx/network errors and Meta transient errors; stop permanent validation/authentication errors. Expired sending leases recover after two minutes. SKIP LOCKED prevents overlapping claims, and a lease UUID prevents stale completions overwriting the winner. Every retry preserves original event_id/event_name/event_time. Browser Pixel is dispatched only on the first claim.
+- Retry endpoint uses a separate narrow key whose plaintext exists only in Supabase Vault; DB settings store a hash. The retry key cannot read statistics or insert visits. No browser endpoint exposes the retry action.
+- Initial setup records are marked is_test and excluded from the default live report. Dashboard can switch to test records. The original QA visitor remains in tracking_test_visitors so repeats from that same browser remain tests until the owner resets the data. Test mode cannot be enabled by an arbitrary public URL parameter. META_TEST_EVENT_CODE is used only for is_test events when configured; old tests already accepted by Meta cannot be removed by clearing Supabase.
+- browser_dispatched_at means the Meta library loaded and the local queue was dispatched; it does not prove Meta received or deduplicated the browser event. Final Meta Events Manager verification requires the authorized Chrome session.
 - Direct visits to destination URLs bypass this gateway. Replace ad URLs with Tracking URLs. A custom `track.alphabetfacade.com` domain can be attached later. Cookies are scoped to the tracking host; no cross-device identity or fingerprinting.
 
 ## Privacy and statistics
@@ -65,3 +68,13 @@ Verification performed: production build; signed identity/CSRF/GPC/consent/Event
 ## Deployment
 
 Sites identity is in `.openai/hosting.json`; preserve its project_id. Deploy with the Sites source/build workflow. Supabase function is deployed separately. GitHub is the source mirror requested by the owner. Deploying GitHub alone does not redeploy the hosted Worker or Edge Function.
+
+## Schema order and verification
+
+Apply schema.sql, lifetime.sql, reliable_delivery.sql, then retry_schedule.sql to a fresh project. Existing live project already has these migrations.
+
+Tests: `node --experimental-strip-types --test tests/*.test.mjs`; database-only outbox assertions in `tests/outbox.sql` roll back all test rows and do not make HTTP calls. Cron job health was checked for successful scheduled runs and HTTP 200.
+
+## Owner-requested reset
+
+The owner said they will clear data themselves. No records were deleted during this change. Optional `supabase/reset_tracking_data.sql` clears only event/visit/identity/test data, preserves links/settings/Secrets/Vault/cron, and should only run when the owner decides to reset. This resets permanent deduplication history; existing browser IDs will count again on their next visits. It cannot clear events already sent to Meta.
