@@ -23,7 +23,10 @@ test('SDK uses returned server ID, limits dispatch, and reuses first-party visit
  s.events['alphabet:marketing-consent']({detail:true});await settle();assert.equal(s.win.fbq.queue.filter(a=>a[0]==='trackSingleCustom').length,1);
  const repeat=setup({jar:s.jar});await settle();assert.equal(repeat.calls[0].visitor,s.calls[0].visitor);assert.notEqual(repeat.calls[0].id,s.calls[0].id);
 });
-test('GPC overrides consent; standalone banner offers deny and accept',async()=>{
- const s=setup({gpc:true,initial:true});await settle();assert.equal(s.scripts.length,0);assert.equal(s.calls.at(-1).granted,false);
- const banner=setup({cmp:false});await settle();assert.equal(banner.children.length,1);const buttons=banner.children[0].children.filter(x=>x.tag==='button');assert.equal(buttons.length,2);buttons[1].onclick();await settle();assert.equal(banner.calls.at(-1).granted,false);assert.equal(banner.scripts.length,0);
+test('automatic mode has no banner, no fabricated consent, and honors opt-out',async()=>{
+ const auto=setup({cmp:false});await settle();assert.equal(auto.children.length,0);assert.equal(auto.calls.at(-1).action,'automatic');assert.equal(auto.jar.has('alphabet_marketing_v1'),false);assert.equal(auto.scripts.length,1);assert.equal(auto.win.fbq.queue.some(a=>a[0]==='consent'&&a[1]==='grant'),false);
+ const gpc=setup({cmp:false,gpc:true});await settle();assert.equal(gpc.scripts.length,0);assert.equal(gpc.calls.at(-1).granted,false);
+ const saved=setup({cmp:false,jar:new Map([['alphabet_marketing_v1','no']])});await settle();assert.equal(saved.scripts.length,0);assert.equal(saved.calls.at(-1).granted,false);
+ const denied=setup({cmp:false,initial:false});await settle();assert.equal(denied.scripts.length,0);
+ auto.win.AlphabetTracking.optOut();await settle();assert.equal(auto.calls.at(-1).granted,false);
 });

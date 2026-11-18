@@ -21,6 +21,14 @@ test('signed consent, GPC suppression, event ID shared by browser and CAPI',asyn
  const {ticket}=await(await handler(request({action:'visit',id,visitor,page:origin+'/project-start.html'}))).json();
  assert.equal((await handler(request({action:'consent',ticket:ticket+'x',granted:true}))).status,401);
  assert.equal((await handler(request({action:'consent',ticket:'',granted:true}))).status,401);
- await handler(request({action:'consent',ticket,granted:false}));await handler(request({action:'consent',ticket,granted:true},origin,{'sec-gpc':'1'}));assert.equal(sent.length,0);assert.ok(calls.some(([path,b])=>path==='tracking_visits?visitor_id=eq.'+visitor&&b.consent==='denied'));
+ await handler(request({action:'consent',ticket,granted:false}));await handler(request({action:'consent',ticket,granted:true},origin,{'sec-gpc':'1'}));assert.equal(sent.length,0);assert.ok(calls.some(([path,b])=>path==='rpc/tracking_opt_out'&&b.p_visitor===visitor));
  const r=await(await handler(request({action:'consent',ticket,granted:true}))).json();assert.equal(r.event_id,sent[0].event_id);assert.equal(r.event_name,'Project Start');assert.equal(r.pixel_id,'1038711025904592');assert.equal(r.accepted,true);
+});
+
+test('automatic requests use separate permission RPC; GPC still blocks sending',async()=>{
+ const calls=[],sent=[];const event={event_id:crypto.randomUUID(),event_name:'Project Start'};
+ const handler=createHandler(async(path,b)=>{calls.push([path,b]);if(path.startsWith('tracking_settings'))return[{pixel_id:'1038711025904592',window_confirmed:true,meta_enabled:true,automatic_delivery_enabled:true}];if(path==='rpc/tracking_automatic')return{dispatch:true,event,visit:{visitor_id:visitor,consent:'unknown'}};return{}},'secret','token',undefined,async(e,v)=>{sent.push(v);return{accepted:true}});
+ const {ticket}=await(await handler(request({action:'visit',id,visitor,page:origin+'/project-start.html'}))).json();
+ await handler(request({action:'automatic',ticket,granted:true},origin,{'sec-gpc':'1'}));assert.equal(sent.length,0);
+ const result=await(await handler(request({action:'automatic',ticket,granted:true}))).json();assert.equal(result.event_id,event.event_id);assert.equal(sent[0].consent,'unknown');assert.equal(calls.some(([p])=>p==='rpc/tracking_consent'),false);
 });

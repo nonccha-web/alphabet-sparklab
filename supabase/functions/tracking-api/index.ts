@@ -22,8 +22,8 @@ Deno.serve(async req=>{
  if(!ready)return json({processed:0,reason:'delivery_disabled'});
  const claims=await db('rpc/tracking_claim_retries',{p_limit:10});
  const outcomes=await Promise.all(claims.map(async(c:any)=>{
- const current=await db('tracking_visits?id=eq.'+c.visit.id+'&select=consent');
- if(current[0]?.consent!=='granted'){
+ const current=await db('tracking_visits?id=eq.'+c.visit.id+'&select=consent,automatic_delivery_allowed');
+ if(!current[0]||current[0].consent==='denied'||!(current[0].consent==='granted'||(current[0].automatic_delivery_allowed&&s.automatic_delivery_enabled))){
  await db('rpc/tracking_finish_attempt',{p_event:c.event.event_id,p_lease:c.event.lease_token,p_accepted:false,p_retryable:false,p_error:'consent_revoked',p_trace:null});return {accepted:false};}
  return deliver(c.event,c.visit,s.pixel_id,token!,Deno.env.get('META_TEST_EVENT_CODE'),db);
  }));

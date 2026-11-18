@@ -22,25 +22,26 @@ export function createHandler(db:any,secret:string,token?:string,testCode?:strin
  const value=[b.id,b.visitor,slug,Date.now()+3600000].join('|');
  return json({ticket:value+'.'+await signature(value,secret)});
  }
- if(!['consent','browser-dispatched'].includes(b.action))return json({error:'Unknown action'},400);
+ if(!['consent','automatic','browser-dispatched'].includes(b.action))return json({error:'Unknown action'},400);
  const ticket=String(b.ticket||''),i=ticket.lastIndexOf('.'),value=ticket.slice(0,i),sig=ticket.slice(i+1),expected=await signature(value,secret);
  let mismatch=sig.length^expected.length;for(let n=0;n<expected.length;n++)mismatch|=(sig.charCodeAt(n)||0)^expected.charCodeAt(n);
  const [visit,visitor,slug,expires]=value.split('|');
  if(i<0||mismatch||!uuid.test(visit)||!uuid.test(visitor)||!Object.values(pages).includes(slug)||!Number.isFinite(+expires)||(+expires<Date.now()&&!(b.action==='consent'&&b.granted!==true)))return json({error:'Invalid or expired ticket'},401);
  if(b.action==='browser-dispatched'){
- const rows=await db('tracking_visits?id=eq.'+visit+'&visitor_id=eq.'+visitor+'&consent=eq.granted&select=unique_id');
+ const rows=await db('tracking_visits?id=eq.'+visit+'&visitor_id=eq.'+visitor+'&consent=neq.denied&or=(consent.eq.granted,automatic_delivery_allowed.eq.true)&select=unique_id');
  if(rows[0]?.unique_id)await db('tracking_meta_events?event_id=eq.'+rows[0].unique_id,{browser_dispatched_at:new Date().toISOString()},'PATCH');
  return json({ok:true});
  }
- // A withdrawal covers this browser's earlier visits too, so queued retries stop.
  if(b.granted!==true||req.headers.get('sec-gpc')==='1'){
- await db('tracking_visits?visitor_id=eq.'+visitor,{consent:'denied',consent_at:new Date().toISOString(),consent_version:'alphabet-marketing-v1'},'PATCH');
+ await db('rpc/tracking_opt_out',{p_visitor:visitor});
  return json({dispatch:false});
  }
- const [s]=await db('tracking_settings?id=eq.true&select=pixel_id,window_confirmed,meta_enabled');
+ const [s]=await db('tracking_settings?id=eq.true&select=pixel_id,window_confirmed,meta_enabled,automatic_delivery_enabled');
  const ready=!!token&&s.window_confirmed&&s.meta_enabled;
  const granted=b.granted===true&&req.headers.get('sec-gpc')!=='1';
- const c=await db('rpc/tracking_consent',{p_visit:visit,p_visitor:visitor,p_granted:granted,p_ready:ready});
+ const c=b.action==='automatic'
+ ? await db('rpc/tracking_automatic',{p_visit:visit,p_visitor:visitor,p_ready:ready&&s.automatic_delivery_enabled===true})
+ : await db('rpc/tracking_consent',{p_visit:visit,p_visitor:visitor,p_granted:granted,p_ready:ready});
  if(!c.dispatch)return json({dispatch:false});
  const outcome=await send(c.event,c.visit,s.pixel_id,token!,testCode,db);
  return json({dispatch:true,pixel_id:s.pixel_id,event_name:c.event.event_name,event_id:c.event.event_id,accepted:outcome.accepted});
