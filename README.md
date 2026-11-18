@@ -12,7 +12,7 @@ Dashboard: https://alphabet-sparklab-tracking.siraphobice1995.chatgpt.site
 
 ## Current activation state
 
-Visit recording and aggregate dashboard are live. Meta delivery is intentionally disabled pending the owner's campaign window choice and a CAPI token. Initial analytics use a clearly labelled provisional 30-day rolling window. No mock statistics. Historic visits are not backfilled into Meta when enabled later.
+Visit recording and aggregate dashboard are live. Meta delivery is intentionally disabled pending secure CAPI token storage. Owner approved permanent per-visitor/per-link deduplication. Applied supabase/lifetime.sql; window_mode=lifetime, window_confirmed=true. Existing identities are preserved. Browser cookies remain subject to expiry/deletion; this cannot guarantee cross-device or truly eternal identity. No mock statistics. Historic visits are not backfilled into Meta when enabled later.
 
 ## Architecture
 
@@ -37,13 +37,11 @@ Consent notice version: `alphabet-marketing-v1`. It describes browser identity a
 ## Activate safely (owner/admin only)
 
 1. In Supabase project `hvrclmycmpgmnpwyzznw` → Edge Functions → Secrets, set `META_CAPI_ACCESS_TOKEN`. Optional `META_TEST_EVENT_CODE` routes testing into Meta Test Events. Never put either value in source, the public browser, chat, or a GitHub issue.
-2. Confirm the campaign window. For a new rolling-window campaign, update the following in Supabase SQL Editor, choosing the intended day count. Changing version starts a new deduplication cohort and does not recompute historical records.
+2. The owner selected lifetime deduplication. Keep the current mode; no rolling reset is needed. After securely configuring and testing the token, enable delivery:
 
 ```sql
 update public.tracking_settings
-set window_mode='rolling', window_days=30,
-    window_version=gen_random_uuid(), window_confirmed=true,
-    meta_enabled=true
+set window_mode='lifetime', window_confirmed=true, meta_enabled=true
 where id;
 ```
 
