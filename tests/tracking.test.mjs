@@ -1,35 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {sign,seal,unseal,trackingRoute} from '../worker/tracking.ts';
-const key='k'.repeat(64),env={TRACKING_BRIDGE_KEY:key};
-test('signed first-party identity rejects forgery',async()=>{
- const value=await seal('visitor',key);assert.equal(await unseal(value,key),'visitor');assert.equal(await unseal(value+'x',key),null);assert.equal(await unseal(value,'wrong'),null);
+import {trackingRoute} from '../worker/tracking.ts';
+import {createHandler,origin} from '../supabase/functions/website-tracking/handler.ts';
+const id=crypto.randomUUID(),visitor=crypto.randomUUID();
+function request(body,o=origin,extra={}){return new Request('https://collector.test',{method:'POST',headers:{origin:o,'Content-Type':'application/json',...extra},body:JSON.stringify(body)})}
+test('retired gateway cannot record or dispatch',async()=>{
+ for(const path of ['/t/request-quotation','/t/project-start','/t/facade-care','/api/tracking/consent']) assert.equal((await trackingRoute(new Request('https://test'+path),{})).status,410);
 });
-test('unknown link does not write; known visits reuse browser identity',async()=>{
- const original=global.fetch;const calls=[];global.fetch=async(_,init)=>{calls.push(JSON.parse(init.body));return Response.json({})};
- try{
- assert.equal((await trackingRoute(new Request('https://tracking.test/t/missing'),env)).status,404);assert.equal(calls.length,0);
- const visitor='22222222-2222-4222-8222-222222222222';const ck='alphabet_vid='+await seal(visitor,key);
- for(let i=0;i<2;i++){const r=await trackingRoute(new Request('https://tracking.test/t/request-quotation?fbclid=secret',{headers:{cookie:ck,'User-Agent':'iPhone'}}),env);assert.equal(r.status,200);const text=await r.text();assert.ok(!text.includes('fbevents.js'));assert.ok(text.includes('ไม่ยินยอม'));assert.match(r.headers.get('set-cookie'),/HttpOnly/)}
- assert.equal(calls[0].visitor,visitor);assert.equal(calls[1].visitor,visitor);assert.notEqual(calls[0].id,calls[1].id);assert.equal(calls[0].source,'https://tracking.test/t/request-quotation');assert.equal(calls[0].ua,'iPhone');
- }finally{global.fetch=original}
+test('collector accepts only original pages, strips query, preserves visitor identity',async()=>{
+ const calls=[];const handler=createHandler(async(...a)=>{calls.push(a);return{}},'secret');
+ assert.equal((await handler(request({action:'visit',id,visitor,page:origin+'/request-quotation.html'},'https://evil.test'))).status,403);
+ assert.equal((await handler(request({action:'visit',id,visitor,page:origin+'/other.html'}))).status,400);
+ assert.equal(calls.length,0);
+ for(const slug of ['request-quotation','project-start','facade-care']){
+ const r=await handler(request({action:'visit',id,visitor,page:origin+'/'+slug+'.html?fbclid=private'}));assert.equal(r.status,200);assert.ok((await r.json()).ticket);assert.equal(calls.at(-1)[1].p_visitor,visitor);assert.equal(calls.at(-1)[1].p_source,origin+'/'+slug+'.html');}
 });
-test('consent requires matching cookie, signature, expiry and origin; GPC overrides allow',async()=>{
- const original=global.fetch;const calls=[];global.fetch=async(_,init)=>{calls.push(JSON.parse(init.body));return Response.json({dispatch:false})};
- try{
- const visitor=crypto.randomUUID(),visit=crypto.randomUUID();const ticket=await seal([visit,visitor,'facade-care',Date.now()+60000].join('|'),key);
- const post=async(origin,ck,choice='allow',gpc='0')=>trackingRoute(new Request('https://tracking.test/api/tracking/consent',{method:'POST',headers:{origin,cookie:ck,'sec-gpc':gpc},body:new URLSearchParams({ticket,choice})}),env);
- const ck='alphabet_vid='+await seal(visitor,key);
- assert.equal((await post('https://evil.test',ck)).status,403);assert.equal((await post('https://tracking.test','')).status,400);assert.equal(calls.length,0);
- const denied=await post('https://tracking.test',ck,'deny');assert.equal(denied.status,303);assert.equal(calls[0].granted,false);assert.equal(denied.headers.get('Location'),'https://www.alphabetfacade.com/facade-care.html');
- await post('https://tracking.test',ck,'allow','1');assert.equal(calls[1].granted,false);
- }finally{global.fetch=original}
-});
-test('browser event uses exact server event name and event_id',async()=>{
- const original=global.fetch;global.fetch=async()=>Response.json({dispatch:true,event_name:'Project Start',event_id:'stable-event',pixel_id:'1038711025904592'});
- try{
- const visitor=crypto.randomUUID();const ticket=await seal([crypto.randomUUID(),visitor,'project-start',Date.now()+60000].join('|'),key);
- const r=await trackingRoute(new Request('https://tracking.test/api/tracking/consent',{method:'POST',headers:{origin:'https://tracking.test',cookie:'alphabet_vid='+await seal(visitor,key)},body:new URLSearchParams({ticket,choice:'allow'})}),env);
- const text=await r.text();assert.ok(text.includes('Project Start'));assert.ok(text.includes('stable-event'));assert.ok(text.includes("fbq('trackCustom',c.event,{}, {eventID:c.id})"));assert.ok(!text.includes("'PageView'"));
- }finally{global.fetch=original}
+test('signed consent, GPC suppression, event ID shared by browser and CAPI',async()=>{
+ const calls=[],sent=[];const event={event_id:crypto.randomUUID(),event_name:'Project Start'};
+ const handler=createHandler(async(path,b)=>{calls.push([path,b]);if(path.startsWith('tracking_settings'))return[{pixel_id:'1038711025904592',window_confirmed:true,meta_enabled:true}];if(path==='rpc/tracking_consent')return b.p_granted?{dispatch:true,event,visit:{visitor_id:visitor}}:{dispatch:false};return{}},'secret','token',undefined,async(e)=>{sent.push(e);return{accepted:true}});
+ const {ticket}=await(await handler(request({action:'visit',id,visitor,page:origin+'/project-start.html'}))).json();
+ assert.equal((await handler(request({action:'consent',ticket:ticket+'x',granted:true}))).status,401);
+ assert.equal((await handler(request({action:'consent',ticket:'',granted:true}))).status,401);
+ await handler(request({action:'consent',ticket,granted:false}));await handler(request({action:'consent',ticket,granted:true},origin,{'sec-gpc':'1'}));assert.equal(sent.length,0);
+ const r=await(await handler(request({action:'consent',ticket,granted:true}))).json();assert.equal(r.event_id,sent[0].event_id);assert.equal(r.event_name,'Project Start');assert.equal(r.pixel_id,'1038711025904592');assert.equal(r.accepted,true);
 });
