@@ -41,3 +41,5 @@ window.dispatchEvent(new CustomEvent('alphabet:marketing-consent', {detail: gran
 ทดสอบหลังติดตั้ง: Visits เพิ่ม, เปิดซ้ำ Unique ไม่เพิ่ม, ทั้งสองช่องทางใช้ event_id เดียวกัน, GPC/ปฏิเสธไม่ส่ง Meta
 
 [Dashboard](https://nonccha-web.github.io/alphabet-sparklab/)
+
+เมื่อพบ CookieWow ระบบจะอ่านสิทธิ์ marketing และรอผลก่อนส่ง Meta พร้อมรับการเปลี่ยนสิทธิ์จาก cwcCookieWrapper โดยไม่เพิ่มแบนเนอร์ใหม่

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import fs from 'node:fs';
 const source=fs.readFileSync(new URL('../integration/alphabet-tracking.js',import.meta.url),'utf8');
-function setup({path='/project-start.html',gpc=false,cmp=true,initial,jar=new Map()}={}){
+function setup({path='/project-start.html',gpc=false,cmp=true,initial,cookieWow=false,cwcChoice,jar=new Map()}={}){
  const calls=[],scripts=[],events={},children=[];
- const document={currentScript:{dataset:{consent:cmp?'cmp':''}},head:{appendChild:e=>scripts.push(e)},body:{appendChild:e=>children.push(e)},createElement:tag=>({tag,style:{},children:[],setAttribute(){},appendChild(e){this.children.push(e)},remove(){}})};
+ const document={querySelector:()=>cookieWow?{}:null,currentScript:{dataset:{consent:cmp?'cmp':''}},head:{appendChild:e=>scripts.push(e)},body:{appendChild:e=>children.push(e)},createElement:tag=>({tag,style:{},children:[],setAttribute(){},appendChild(e){this.children.push(e)},remove(){}})};
  Object.defineProperty(document,'cookie',{get:()=>[...jar].map(x=>x.join('=')).join('; '),set:s=>{const[n,v]=s.split(';')[0].split('=');jar.set(n,v)}});
- const win={addEventListener:(name,cb)=>events[name]=cb,alphabetMarketingConsent:initial};
+ const win={addEventListener:(name,cb)=>events[name]=cb,alphabetMarketingConsent:initial,cwcIsUserAccept:cwcChoice===undefined?undefined:()=>cwcChoice};
  const ctx={window:win,document,location:{origin:'https://www.alphabetfacade.com',pathname:path},navigator:{globalPrivacyControl:gpc},crypto,console,setTimeout,clearTimeout,setInterval:()=>1,clearInterval(){},fetch:async(url,init)=>{const b=JSON.parse(init.body);calls.push(b);return Response.json(b.action==='visit'?{ticket:'signed'}:b.granted?{dispatch:true,event_id:'same-server-event',event_name:'Project Start',pixel_id:'1038711025904592'}:{dispatch:false})}};
  vm.runInNewContext(source,ctx);
  return {calls,scripts,events,children,win,jar};
@@ -29,4 +29,12 @@ test('automatic mode has no banner, no fabricated consent, and honors opt-out',a
  const saved=setup({cmp:false,jar:new Map([['alphabet_marketing_v1','no']])});await settle();assert.equal(saved.scripts.length,0);assert.equal(saved.calls.at(-1).granted,false);
  const denied=setup({cmp:false,initial:false});await settle();assert.equal(denied.scripts.length,0);
  auto.win.AlphabetTracking.optOut();await settle();assert.equal(auto.calls.at(-1).granted,false);
+});
+
+test('CookieWow gates delivery until ready and follows marketing changes',async()=>{
+ const s=setup({cmp:false,cookieWow:true});await settle();assert.equal(s.calls.length,1);assert.equal(s.scripts.length,0);
+ s.win.cwcIsUserAccept=()=>false;s.win.cwcCookieWrapper();await settle();assert.equal(s.calls.at(-1).granted,false);assert.equal(s.scripts.length,0);
+ s.win.cwcIsUserAccept=()=>true;s.win.cwcCookieWrapper();await settle();assert.equal(s.calls.at(-1).action,'consent');assert.equal(s.scripts.length,1);
+ s.win.cwcIsUserAccept=()=>false;s.win.cwcCookieWrapper();await settle();assert.equal(s.calls.at(-1).granted,false);
+ const saved=setup({cmp:false,cookieWow:true,cwcChoice:false});await settle();assert.equal(saved.scripts.length,0);assert.equal(saved.jar.has('alphabet_marketing_v1'),false);
 });

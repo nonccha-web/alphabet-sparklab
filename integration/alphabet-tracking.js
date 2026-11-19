@@ -3,7 +3,8 @@
  var pages = ['/request-quotation.html', '/project-start.html', '/facade-care.html'];
  if (location.origin !== 'https://www.alphabetfacade.com' || pages.indexOf(location.pathname) < 0 || window.AlphabetTracking) return;
  var script = document.currentScript;
- var cmp = script && script.dataset.consent === 'cmp';
+ var cookieWow = !!document.querySelector('script[src*="cookiecdn.com/"]');
+ var cmp = cookieWow || (script && script.dataset.consent === 'cmp');
  var endpoint = 'https://hvrclmycmpgmnpwyzznw.supabase.co/functions/v1/website-tracking';
  var deniedByBrowser = navigator.globalPrivacyControl === true;
  var choice = deniedByBrowser ? false : (cmp ? null : true);
@@ -51,6 +52,26 @@
  window.AlphabetTracking = { setMarketingConsent: setConsent, optOut: function () { setConsent(false); } };
  if (!cmp && !deniedByBrowser) { var saved = read('alphabet_marketing_v1'); if (saved === 'yes') { choice = true; explicitConsent = true; } if (saved === 'no') choice = false; }
  if (typeof window.alphabetMarketingConsent === 'boolean') { explicitConsent = window.alphabetMarketingConsent; choice = explicitConsent && !deniedByBrowser; }
+ if (cookieWow) {
+  choice = deniedByBrowser ? false : null;
+  explicitConsent = false;
+  var previousCookieWowWrapper = window.cwcCookieWrapper;
+  var lastCookieWowChoice;
+  function readCookieWow() {
+   if (typeof window.cwcIsUserAccept !== 'function') return;
+   var granted;
+   try { granted = window.cwcIsUserAccept('marketing'); } catch (e) { return; }
+   if (typeof granted !== 'boolean' || granted === lastCookieWowChoice) return;
+   lastCookieWowChoice = granted;
+   setConsent(granted);
+  }
+  window.cwcCookieWrapper = function () {
+   try { if (typeof previousCookieWowWrapper === 'function') previousCookieWowWrapper.apply(this, arguments); }
+   finally { readCookieWow(); }
+  };
+  readCookieWow();
+  setInterval(readCookieWow, 1000);
+ }
  window.addEventListener('alphabet:marketing-consent', function (e) { setConsent(e.detail === true); });
  async function record() {
   for (var attempt = 0; attempt < 3; attempt++) {
