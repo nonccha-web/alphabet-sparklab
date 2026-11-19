@@ -69,6 +69,16 @@
    try { if (typeof previousCookieWowWrapper === 'function') previousCookieWowWrapper.apply(this, arguments); }
    finally { readCookieWow(); }
   };
+  function addPreferenceControl() {
+   var button = document.createElement('button');
+   button.type = 'button';
+   button.textContent = 'ตั้งค่าคุกกี้';
+   button.style.cssText = 'position:fixed;bottom:12px;left:12px;z-index:9999;padding:8px 12px;border:1px solid #ccc;border-radius:4px;background:#fff;color:#333;font:12px sans-serif;cursor:pointer';
+   button.onclick = function () { if (window.cwcCookieBanner && typeof window.cwcCookieBanner.openPreference === 'function') window.cwcCookieBanner.openPreference(); };
+   document.body.appendChild(button);
+  }
+  if (document.body) addPreferenceControl();
+  else window.addEventListener('DOMContentLoaded', addPreferenceControl, { once: true });
   readCookieWow();
   setInterval(readCookieWow, 1000);
  }
